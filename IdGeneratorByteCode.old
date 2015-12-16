@@ -1,0 +1,176 @@
+------------------------ MODULE IdGeneratorByteCode ------------------------
+
+
+EXTENDS Integers, Sequences,  TLC
+
+CONSTANT  NumberOfProcesses, Locking
+
+(*
+
+--fair algorithm IdGenerator {
+
+  variable  
+  this = [lastId |-> 42, lock |-> 0],    
+  stacks = [ i \in 1..NumberOfProcesses |-> <<>>],
+  returnValue = [i\in 1..NumberOfProcesses |-> -1] 
+  ;
+  
+  define {
+    Last(S) == S[Len(S)]
+    Pop(S) == SubSeq(S, 1, Len(S)-1)
+    AllIsDone ==  (\A i \in 1 .. NumberOfProcesses: pc[i] = "Done")
+    AllStacksAreEmpty ==  (\A i \in 1 .. NumberOfProcesses: stacks[i] = <<>>)
+    IdsAreAllDifferent == (\A i,j \in 1 .. NumberOfProcesses: i#j => returnValue[i] # returnValue[j])
+    IdGeneratorInvariant == AllIsDone => AllStacksAreEmpty /\ IdsAreAllDifferent
+  }
+
+  (* update and read are now one atomic step *)
+  process(id \in 1 .. NumberOfProcesses) {
+   checkLocking: 
+   if (Locking) {
+        waitForLock: 
+            await this.lock = 0;
+            this.lock := self;
+   };
+    \* Load _this_ onto the operand stacks 
+    aload0: stacks[self] := Append(stacks[self], this);
+    \* copy the top of the stacks 
+    dup: stacks[self] := Append(stacks[self], Last(stacks[self]));
+    \* retrieve the value of field lastId from _this_ and store it back on the top of the stacks
+    getfield_lastId: 
+          with (lastId = Last(stacks[self]).lastId) {
+            stacks[self] := Append(Pop(stacks[self]), lastId);
+          };
+    \* push the integer constant 1 on the stacks 
+    iconst_1: stacks[self] := Append(stacks[self], 1);
+     \* integer add the top two values on the top of the stacks
+    iadd: 
+        with (a = Last(stacks[self]), b = Last(Pop(stacks[self]))) {
+            stacks[self] := Append(Pop(Pop(stacks[self])) , a+b);
+        };
+    \* duplicate the value on top of the stack and put it before _this_
+    dup_x1: 
+        stacks[self] := <<Last(stacks[self])>> \o stacks[self];
+    \* Store the top value on the operand stack into the field value of the 
+    \* current object, represented by the net-to-top value on the operand stack, _this_
+    putfield: 
+        this.lastId := Last(stacks[self]);
+        stacks[self] := Pop(Pop(stacks[self])) ;
+    \* return the top(and only) value on the stack
+    ireturn: 
+        returnValue[self] := Last(stacks[self]);
+        stacks[self] := Pop(stacks[self]);
+     if (Locking) {        
+        unlock: this.lock := 0;
+     };
+  }
+}*)
+
+
+
+\* BEGIN TRANSLATION
+VARIABLES this, stacks, returnValue, pc
+
+(* define statement *)
+Last(S) == S[Len(S)]
+Pop(S) == SubSeq(S, 1, Len(S)-1)
+AllIsDone ==  (\A i \in 1 .. NumberOfProcesses: pc[i] = "Done")
+AllStacksAreEmpty ==  (\A i \in 1 .. NumberOfProcesses: stacks[i] = <<>>)
+IdsAreAllDifferent == (\A i,j \in 1 .. NumberOfProcesses: i#j => returnValue[i] # returnValue[j])
+IdGeneratorInvariant == AllIsDone => AllStacksAreEmpty /\ IdsAreAllDifferent
+
+
+vars == << this, stacks, returnValue, pc >>
+
+ProcSet == (1 .. NumberOfProcesses)
+
+Init == (* Global variables *)
+        /\ this = [lastId |-> 42, lock |-> 0]
+        /\ stacks = [ i \in 1..NumberOfProcesses |-> <<>>]
+        /\ returnValue = [i\in 1..NumberOfProcesses |-> -1]
+        /\ pc = [self \in ProcSet |-> "checkLocking"]
+
+checkLocking(self) == /\ pc[self] = "checkLocking"
+                      /\ IF Locking
+                            THEN /\ pc' = [pc EXCEPT ![self] = "waitForLock"]
+                            ELSE /\ pc' = [pc EXCEPT ![self] = "aload0"]
+                      /\ UNCHANGED << this, stacks, returnValue >>
+
+waitForLock(self) == /\ pc[self] = "waitForLock"
+                     /\ this.lock = 0
+                     /\ this' = [this EXCEPT !.lock = self]
+                     /\ pc' = [pc EXCEPT ![self] = "aload0"]
+                     /\ UNCHANGED << stacks, returnValue >>
+
+aload0(self) == /\ pc[self] = "aload0"
+                /\ stacks' = [stacks EXCEPT ![self] = Append(stacks[self], this)]
+                /\ pc' = [pc EXCEPT ![self] = "dup"]
+                /\ UNCHANGED << this, returnValue >>
+
+dup(self) == /\ pc[self] = "dup"
+             /\ stacks' = [stacks EXCEPT ![self] = Append(stacks[self], Last(stacks[self]))]
+             /\ pc' = [pc EXCEPT ![self] = "getfield_lastId"]
+             /\ UNCHANGED << this, returnValue >>
+
+getfield_lastId(self) == /\ pc[self] = "getfield_lastId"
+                         /\ LET lastId == Last(stacks[self]).lastId IN
+                              stacks' = [stacks EXCEPT ![self] = Append(Pop(stacks[self]), lastId)]
+                         /\ pc' = [pc EXCEPT ![self] = "iconst_1"]
+                         /\ UNCHANGED << this, returnValue >>
+
+iconst_1(self) == /\ pc[self] = "iconst_1"
+                  /\ stacks' = [stacks EXCEPT ![self] = Append(stacks[self], 1)]
+                  /\ pc' = [pc EXCEPT ![self] = "iadd"]
+                  /\ UNCHANGED << this, returnValue >>
+
+iadd(self) == /\ pc[self] = "iadd"
+              /\ LET a == Last(stacks[self]) IN
+                   LET b == Last(Pop(stacks[self])) IN
+                     stacks' = [stacks EXCEPT ![self] = Append(Pop(Pop(stacks[self])) , a+b)]
+              /\ pc' = [pc EXCEPT ![self] = "dup_x1"]
+              /\ UNCHANGED << this, returnValue >>
+
+dup_x1(self) == /\ pc[self] = "dup_x1"
+                /\ stacks' = [stacks EXCEPT ![self] = <<Last(stacks[self])>> \o stacks[self]]
+                /\ pc' = [pc EXCEPT ![self] = "putfield"]
+                /\ UNCHANGED << this, returnValue >>
+
+putfield(self) == /\ pc[self] = "putfield"
+                  /\ this' = [this EXCEPT !.lastId = Last(stacks[self])]
+                  /\ stacks' = [stacks EXCEPT ![self] = Pop(Pop(stacks[self]))]
+                  /\ pc' = [pc EXCEPT ![self] = "ireturn"]
+                  /\ UNCHANGED returnValue
+
+ireturn(self) == /\ pc[self] = "ireturn"
+                 /\ returnValue' = [returnValue EXCEPT ![self] = Last(stacks[self])]
+                 /\ stacks' = [stacks EXCEPT ![self] = Pop(stacks[self])]
+                 /\ IF Locking
+                       THEN /\ pc' = [pc EXCEPT ![self] = "unlock"]
+                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                 /\ this' = this
+
+unlock(self) == /\ pc[self] = "unlock"
+                /\ this' = [this EXCEPT !.lock = 0]
+                /\ pc' = [pc EXCEPT ![self] = "Done"]
+                /\ UNCHANGED << stacks, returnValue >>
+
+id(self) == checkLocking(self) \/ waitForLock(self) \/ aload0(self)
+               \/ dup(self) \/ getfield_lastId(self) \/ iconst_1(self)
+               \/ iadd(self) \/ dup_x1(self) \/ putfield(self)
+               \/ ireturn(self) \/ unlock(self)
+
+Next == (\E self \in 1 .. NumberOfProcesses: id(self))
+           \/ (* Disjunct to prevent deadlock on termination *)
+              ((\A self \in ProcSet: pc[self] = "Done") /\ UNCHANGED vars)
+
+Spec == /\ Init /\ [][Next]_vars
+        /\ WF_vars(Next)
+
+Termination == <>(\A self \in ProcSet: pc[self] = "Done")
+
+\* END TRANSLATION
+
+=============================================================================
+\* Modification History
+\* Last modified Sun Dec 13 12:53:34 EST 2015 by balopat
+\* Created Thu Dec 10 19:27:24 EST 2015 by balopat
